@@ -1,0 +1,15 @@
+[project]
+name = "nyc-tlc-trip-data"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.43.46",
+    "jupyter>=1.1.1",
+    "kaggle>=2.2.3",
+    "pandas>=3.0.3",
+    "pyarrow>=25.0.0",
+    "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
+]
