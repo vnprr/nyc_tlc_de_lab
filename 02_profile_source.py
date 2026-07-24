@@ -1,8 +1,11 @@
+"""Run a quick smoke check of one source file without opening Jupyter."""
+
 import logging
 from pathlib import Path
+
 import pandas as pd
 
-from functions.validate_data_source import validate_source
+from src.validate import validate_source
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_FILE = PROJECT_DIR / "data/raw_download/yellow_tripdata_2024-01.parquet"
@@ -23,13 +26,12 @@ def load_source(file_path: Path) -> pd.DataFrame:
     logging.info("Source file found: %s", file_path)
     logging.info("File size: %.2f MB", file_size_mb)
     
-    df = pd.read_parquet(file_path)
-
     logging.info("Loading source data from: %s", file_path)
+    df = pd.read_parquet(file_path)
 
     return df
 
-def log_basic_info(df: pd.DataFrame):
+def log_basic_info(df: pd.DataFrame) -> None:
 
     logging.info("DataFrame loaded")
     logging.info("Rows: %s", len(df))

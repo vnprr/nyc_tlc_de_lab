@@ -35,18 +35,23 @@ ALLOWED_VALUES = {
 
 
 def validate_source(df: pd.DataFrame) -> None:
-    logging.info("Source validation passed")
-    
     errors = []
 
     if df.empty:
         errors.append("Dataset is empty.")
 
     missing_columns = REQUIRED_COLUMNS - set(df.columns)
+    unexpected_columns = set(df.columns) - REQUIRED_COLUMNS
 
     if missing_columns:
         errors.append(
             f"Missing required columns: {sorted(missing_columns)}"
+        )
+
+    if unexpected_columns:
+        errors.append(
+            "Unexpected columns for the current source schema: "
+            f"{sorted(unexpected_columns)}"
         )
 
     if not missing_columns:

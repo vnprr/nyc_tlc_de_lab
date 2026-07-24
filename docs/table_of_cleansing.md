@@ -11,7 +11,7 @@ This file contains only the final cleaning decisions.
 | Fare and total have different signs | Keep the record and mark it for review. | `has_amount_sign_mismatch` |
 | Total does not match a simple sum of amount columns | Keep the record. The amount structure differs between vendors. | No general error flag |
 | Pickup outside January 2024 | Keep the record, but exclude it from the January dataset. | `is_outside_reporting_month` |
-| Dates from 2002 or 2009 | Keep the source record, but exclude it from time-based analysis. | `has_untrustworthy_timestamp` |
+| Pickup timestamp is missing, older than the trusted range or later than the processing time | Move the record to `rejected`. Keep the original row and add a rejection reason. | `rejection_reason` |
 | Duration is zero, negative or close to 24 hours | Keep the record, but exclude it from normal duration and speed analysis. | `has_nonpositive_duration`, `has_near_24h_duration` |
 | Distance is zero | Keep the record. Zero distance alone does not prove that the trip is invalid. | `has_zero_distance` |
 | Distance is greater than 100 miles | Keep the source value, but exclude it from normal trip analysis. | `has_extreme_distance` |
@@ -23,5 +23,8 @@ This file contains only the final cleaning decisions.
 ## Output
 
 - `raw` keeps the original file unchanged;
-- `processed` keeps all rows and adds quality flags;
+- `processed` keeps accepted rows and adds quality flags;
+- `rejected` keeps rows that violate the trusted pickup timestamp rule;
+- every output row includes `source_file`;
+- the pipeline checks that `raw rows = processed rows + rejected rows`;
 - filtered datasets are created later for specific analyses.

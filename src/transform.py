@@ -10,7 +10,6 @@ QUALITY_FLAGS = [
     "is_negative_transaction",
     "has_amount_sign_mismatch",
     "is_outside_reporting_month",
-    "has_untrustworthy_timestamp",
     "has_nonpositive_duration",
     "has_suspicious_long_duration",
     "has_near_24h_duration",
@@ -27,12 +26,12 @@ def transform_trips(
     df: pd.DataFrame,
     reporting_year: int,
     reporting_month: int,
-) -> pd.DataFrame:
+    source_file: str,
+    processing_time: pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split source rows into processed and rejected datasets."""
     if not 1 <= reporting_month <= 12:
         raise ValueError("reporting_month must be between 1 and 12")
-
-    # Do not modify the source DataFrame.
-    result = df.copy()
 
     reporting_start = pd.Timestamp(
         year=reporting_year,
@@ -40,6 +39,33 @@ def transform_trips(
         day=1,
     )
     reporting_end = reporting_start + pd.DateOffset(months=1)
+    trusted_start = reporting_start - pd.DateOffset(years=1)
+
+    if processing_time is None:
+        processing_time = pd.Timestamp.now()
+    else:
+        processing_time = pd.Timestamp(processing_time)
+
+    if processing_time.tz is not None:
+        processing_time = processing_time.tz_localize(None)
+
+    source = df.copy()
+    source["source_file"] = source_file
+
+    pickup = source["tpep_pickup_datetime"]
+
+    rejected_mask = (
+        pickup.isna()
+        | pickup.lt(trusted_start)
+        | pickup.gt(processing_time)
+    )
+
+    rejected = source.loc[rejected_mask].copy()
+    rejected["rejection_reason"] = (
+        "untrustworthy_pickup_timestamp"
+    )
+
+    result = source.loc[~rejected_mask].copy()
 
     pickup = result["tpep_pickup_datetime"]
     dropoff = result["tpep_dropoff_datetime"]
@@ -57,7 +83,6 @@ def transform_trips(
     negative_total = result["total_amount"] < 0
 
     result["is_negative_transaction"] = negative_total
-
     result["has_amount_sign_mismatch"] = (
         negative_fare != negative_total
     )
@@ -69,17 +94,6 @@ def transform_trips(
         inclusive="left",
     )
 
-    # Clearly untrustworthy historical or future timestamps.
-    trusted_start = reporting_start - pd.DateOffset(years=1)
-    trusted_end = reporting_end + pd.DateOffset(years=1)
-
-    result["has_untrustworthy_timestamp"] = (
-        pickup.lt(trusted_start)
-        | pickup.ge(trusted_end)
-        | dropoff.lt(trusted_start)
-        | dropoff.ge(trusted_end)
-    )
-
     # Duration.
     result["trip_duration_minutes"] = (
         dropoff - pickup
@@ -88,17 +102,14 @@ def transform_trips(
     duration = result["trip_duration_minutes"]
 
     result["has_nonpositive_duration"] = duration.le(0)
-
     result["has_suspicious_long_duration"] = (
         duration.gt(360)
         & duration.lt(1380)
     )
-
     result["has_near_24h_duration"] = (
         duration.ge(1380)
         & duration.lt(1440)
     )
-
     result["has_extreme_duration"] = duration.ge(1440)
 
     # Distance.
@@ -112,7 +123,6 @@ def transform_trips(
     valid_speed_input = duration.gt(0) & distance.ge(0)
 
     result["average_speed_mph"] = np.nan
-
     result.loc[
         valid_speed_input,
         "average_speed_mph",
@@ -131,21 +141,56 @@ def transform_trips(
     )
 
     logging.info(
-        "Trip transformation completed: %s rows",
+        "Trip transformation completed: %s processed, %s rejected",
         f"{len(result):,}",
+        f"{len(rejected):,}",
     )
 
-    return result
+    return result, rejected
 
 
 def create_quality_summary(
-    df: pd.DataFrame,
+    processed_df: pd.DataFrame,
+    rejected_df: pd.DataFrame,
+    raw_row_count: int,
 ) -> pd.DataFrame:
-    counts = df[QUALITY_FLAGS].sum().astype("int64")
+    """Create quality metrics and enforce row-count reconciliation."""
+    output_row_count = len(processed_df) + len(rejected_df)
 
-    return pd.DataFrame({
-        "count": counts,
-        "percentage": (
-            counts.div(len(df)).mul(100).round(4)
-        ),
-    })
+    if raw_row_count != output_row_count:
+        raise ValueError(
+            "Row count reconciliation failed: "
+            f"raw={raw_row_count:,}, "
+            f"processed={len(processed_df):,}, "
+            f"rejected={len(rejected_df):,}"
+        )
+
+    missing_flags = set(QUALITY_FLAGS) - set(processed_df.columns)
+
+    if missing_flags:
+        raise ValueError(
+            f"Missing quality flags: {sorted(missing_flags)}"
+        )
+
+    metrics = {
+        "raw_rows": raw_row_count,
+        "processed_rows": len(processed_df),
+        "rejected_rows": len(rejected_df),
+    }
+    metrics.update(
+        processed_df[QUALITY_FLAGS]
+        .sum()
+        .astype("int64")
+        .to_dict()
+    )
+
+    summary = pd.Series(metrics, name="count").to_frame()
+    summary.index.name = "metric"
+    summary["percentage_of_raw"] = (
+        summary["count"]
+        .div(raw_row_count)
+        .mul(100)
+        .round(4)
+    )
+
+    return summary
