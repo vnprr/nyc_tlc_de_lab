@@ -8,14 +8,7 @@ RAW_DIR = Path("data/raw_download")
 
 s3 = boto3.client("s3")
 
-def object_exists(bucket: str, key: str) -> bool:
-    try:
-        s3.head_object(Bucket=bucket, Key=key)
-        return True
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            return False
-        raise
+
 
 def upload_raw_file(local_path: Path) -> None:
     key = RAW_PREFIX + local_path.name

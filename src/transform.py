@@ -8,18 +8,29 @@ QUALITY_FLAGS = [
     "is_flex_fare_record",
     "is_unknown_ratecode",
     "is_negative_transaction",
-    "has_amount_sign_mismatch",
+    "is_amount_sign_mismatch",
     "is_outside_reporting_month",
-    "has_nonpositive_duration",
-    "has_suspicious_long_duration",
-    "has_near_24h_duration",
-    "has_extreme_duration",
-    "has_negative_distance",
-    "has_zero_distance",
-    "has_extreme_distance",
-    "has_implausible_speed",
-    "has_zero_passengers",
+    "is_nonpositive_duration",
+    "is_long_duration",
+    "is_near_24h_duration",
+    "is_over_24h_duration",
+    "is_negative_distance",
+    "is_zero_distance",
+    "is_extreme_distance",
+    "is_implausible_speed",
+    "is_zero_passengers",
+    "is_unknown_zone",
 ]
+
+RENAME = {
+    "VendorID": "vendor_id",
+    "tpep_pickup_datetime": "pickup_datetime",
+    "tpep_dropoff_datetime": "dropoff_datetime",
+    "RatecodeID": "ratecode_id",
+    "PULocationID": "pu_location_id",
+    "DOLocationID": "do_location_id",
+    "Airport_fee": "airport_fee",
+}
 
 
 def transform_trips(
@@ -38,6 +49,7 @@ def transform_trips(
         month=reporting_month,
         day=1,
     )
+
     reporting_end = reporting_start + pd.DateOffset(months=1)
     trusted_start = reporting_start - pd.DateOffset(years=1)
 
@@ -52,7 +64,9 @@ def transform_trips(
     source = df.copy()
     source["source_file"] = source_file
 
-    pickup = source["tpep_pickup_datetime"]
+    source = source.rename(columns=RENAME)
+    
+    pickup = source["pickup_datetime"]
 
     rejected_mask = (
         pickup.isna()
@@ -67,23 +81,21 @@ def transform_trips(
 
     result = source.loc[~rejected_mask].copy()
 
-    pickup = result["tpep_pickup_datetime"]
-    dropoff = result["tpep_dropoff_datetime"]
+    pickup = result["pickup_datetime"]
+    dropoff = result["dropoff_datetime"]
 
     # Documented TLC categories.
     result["is_flex_fare_record"] = (
         result["payment_type"] == 0
     )
-    result["is_unknown_ratecode"] = (
-        result["RatecodeID"] == 99
-    )
+    result["is_unknown_ratecode"] = result["ratecode_id"].eq(99).fillna(False).astype(bool)
 
     # Monetary flags.
     negative_fare = result["fare_amount"] < 0
     negative_total = result["total_amount"] < 0
 
     result["is_negative_transaction"] = negative_total
-    result["has_amount_sign_mismatch"] = (
+    result["is_amount_sign_mismatch"] = (
         negative_fare != negative_total
     )
 
@@ -101,23 +113,23 @@ def transform_trips(
 
     duration = result["trip_duration_minutes"]
 
-    result["has_nonpositive_duration"] = duration.le(0)
-    result["has_suspicious_long_duration"] = (
+    result["is_nonpositive_duration"] = duration.le(0)
+    result["is_long_duration"] = (
         duration.gt(360)
         & duration.lt(1380)
     )
-    result["has_near_24h_duration"] = (
+    result["is_near_24h_duration"] = (
         duration.ge(1380)
         & duration.lt(1440)
     )
-    result["has_extreme_duration"] = duration.ge(1440)
+    result["is_over_24h_duration"] = duration.ge(1440)
 
     # Distance.
     distance = result["trip_distance"]
 
-    result["has_negative_distance"] = distance.lt(0)
-    result["has_zero_distance"] = distance.eq(0)
-    result["has_extreme_distance"] = distance.gt(100)
+    result["is_negative_distance"] = distance.lt(0)
+    result["is_zero_distance"] = distance.eq(0)
+    result["is_extreme_distance"] = distance.gt(100)
 
     # Average speed is calculated only for usable inputs.
     valid_speed_input = duration.gt(0) & distance.ge(0)
@@ -131,20 +143,26 @@ def transform_trips(
         / (duration.loc[valid_speed_input] / 60)
     )
 
-    result["has_implausible_speed"] = (
-        result["average_speed_mph"] > 80
+    result["is_implausible_speed"] = (
+        result["average_speed_mph"].gt(80).fillna(False).astype(bool)
     )
 
     # Passenger count.
-    result["has_zero_passengers"] = (
-        result["passenger_count"] == 0
-    )
+    result["is_zero_passengers"] = result["passenger_count"].eq(0).fillna(False).astype(bool)
+
+
+    # Zone validation
+    result["is_unknown_zone"] = (
+        result["pu_location_id"].isin({264, 265}) or 
+        result["do_location_id"].isin({264, 265}))
 
     logging.info(
         "Trip transformation completed: %s processed, %s rejected",
         f"{len(result):,}",
         f"{len(rejected):,}",
     )
+
+    for f in QUALITY_FLAGS: assert result[f].dtype == bool
 
     return result, rejected
 
@@ -192,5 +210,7 @@ def create_quality_summary(
         .mul(100)
         .round(4)
     )
+
+    
 
     return summary

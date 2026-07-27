@@ -7,7 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.43.46",
     "jupyter>=1.1.1",
-    "kaggle>=2.2.3",
     "matplotlib>=3.11.1",
     "numpy>=2.5.1",
     "pandas>=3.0.3",
