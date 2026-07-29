@@ -2,8 +2,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import src.validate as validate
-
 
 QUALITY_FLAGS = [
     "is_flex_fare_record",
@@ -33,6 +31,11 @@ RENAME = {
     "Airport_fee": "airport_fee",
 }
 
+COMPONENT_COLS = [
+    "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
+    "improvement_surcharge", "congestion_surcharge", "airport_fee",
+    "cbd_congestion_fee",
+]
 
 def transform_trips(
     df: pd.DataFrame,
@@ -155,11 +158,10 @@ def transform_trips(
     # Passenger count.
     result["is_zero_passengers"] = result["passenger_count"].eq(0).fillna(False).astype(bool)
 
-
     # Zone validation
     result["is_unknown_zone"] = (
-        result["pu_location_id"].isin({264, 265}) or 
-        result["do_location_id"].isin({264, 265}))
+        result["pu_location_id"].isin({264, 265}) 
+        | result["do_location_id"].isin({264, 265}))
 
     logging.info(
         "Trip transformation completed: %s processed, %s rejected",
@@ -171,13 +173,11 @@ def transform_trips(
 
     return result, rejected
 
-
 def create_quality_summary(
     processed_df: pd.DataFrame,
     rejected_df: pd.DataFrame,
     raw_row_count: int,
 ) -> pd.DataFrame:
-    # v5. tu trzeba podbpić minimum count
     """Create quality metrics and enforce row-count reconciliation."""
     output_row_count = len(processed_df) + len(rejected_df)
 
@@ -217,6 +217,29 @@ def create_quality_summary(
         .round(4)
     )
 
-    
+    # Vendor reconciliation metric (H4): early-warning monitor for fee
+    # structure changes. Rows with any missing component are excluded
+    # (min_count) instead of being zero-filled - complete rows only.
+    components = processed_df[COMPONENT_COLS].sum(
+        axis=1, min_count=len(COMPONENT_COLS)
+    )
+    residual = (processed_df["total_amount"] - components).round(2)
+
+    vendor_metrics = {}
+    for vendor_id, vendor_residual in residual.groupby(processed_df["vendor_id"]):
+        complete = vendor_residual.dropna()
+        if complete.empty:
+            continue
+        vendor_metrics[f"vendor_{vendor_id}_rows_in_check"] = len(complete)
+        vendor_metrics[f"vendor_{vendor_id}_median_residual_usd"] = complete.median()
+        vendor_metrics[f"vendor_{vendor_id}_reconciled_pct"] = round(
+            complete.abs().le(0.01).mean() * 100, 2
+        )
+
+    vendor_summary = pd.Series(vendor_metrics, name="count").to_frame()
+    vendor_summary.index.name = "metric"
+    vendor_summary["percentage_of_raw"] = pd.NA
+    summary = pd.concat([summary, vendor_summary])
 
     return summary
+

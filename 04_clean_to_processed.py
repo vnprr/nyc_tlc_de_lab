@@ -1,23 +1,33 @@
 """Clean raw NYC TLC files from S3 into partitioned processed, rejected
 and quality outputs. Idempotent: deterministic output keys, re-runs overwrite."""
+
 import argparse
+from datetime import datetime, timezone
 import logging
-import re
-from pathlib import Path
-
 import pandas as pd
+from pathlib import Path
+import re
 
+from src.manifest import get_raw_etag, load_manifest, needs_processing, save_manifest
 from src.s3_io import download_file, list_keys, upload_df_overwrite, s3
 from src.transform import create_quality_summary, transform_trips
 from src.validate import validate_source
 
-BUCKET = "jakub-nyc-taxi-lake-2026"
-RAW_PREFIX = "raw/yellow_taxi/"
+# variables from env file: 
+from src.config import (
+    BUCKET, WORKDIR,
+    RAW_TAXI_PREFIX, PROCESSED_TAXI_PREFIX,
+    REJECTED_TAXI_PREFIX, QUALITY_TAXI_PREFIX,
+    TAXI_MANIFEST_KEY,
+)
+
+
+
 PROCESSED_PREFIX = "processed/yellow_taxi/"
 REJECTED_PREFIX = "rejected/yellow_taxi/"
 QUALITY_PREFIX = "reports/yellow_taxi/"
 
-WORKDIR = Path("data/workdir")
+
 
 FILE_PATTERN = re.compile(
     r"yellow_tripdata_(?P<year>\d{4})-(?P<month>\d{2})\.parquet"
@@ -83,6 +93,7 @@ def parse_args() -> argparse.Namespace:
         "--only", default=None,
         help="Process a single month, e.g. 2024-01 (default: all raw files).",
     )
+    parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
 
@@ -91,11 +102,22 @@ if __name__ == "__main__":
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
     )
     args = parse_args()
-    raw_keys = list_keys(BUCKET, RAW_PREFIX, suffix=".parquet")
+    raw_keys = list_keys(BUCKET, RAW_TAXI_PREFIX, suffix=".parquet")
     if args.only:
         raw_keys = [k for k in raw_keys if args.only in k]
     if not raw_keys:
-        raise FileNotFoundError(f"No matching raw files in s3://{BUCKET}/{RAW_PREFIX}")
+        raise FileNotFoundError(f"No matching raw files in s3://{BUCKET}/{RAW_TAXI_PREFIX}")
+    manifest = load_manifest(BUCKET, TAXI_MANIFEST_KEY)
     for raw_key in raw_keys:
+        filename = Path(raw_key).name
+        etag = get_raw_etag(BUCKET, raw_key)
+        if not args.force and not needs_processing(filename, etag, manifest):
+            logging.info("SKIP %s (manifest)", filename)
+            continue
         process_key(raw_key)
+        manifest[filename] = {
+            "raw_etag": etag,
+            "processed_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        save_manifest(manifest, BUCKET, TAXI_MANIFEST_KEY)
     logging.info("Pipeline finished: %d file(s).", len(raw_keys))

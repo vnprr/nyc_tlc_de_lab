@@ -12,3 +12,4 @@ wheels/
 # Local data and notebook state
 data/
 .ipynb_checkpoints/
+.env
