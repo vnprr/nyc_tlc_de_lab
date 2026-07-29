@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+import src.validate as validate
 
 
 QUALITY_FLAGS = [
@@ -60,9 +61,13 @@ def transform_trips(
 
     if processing_time.tz is not None:
         processing_time = processing_time.tz_localize(None)
-
+    
     source = df.copy()
     source["source_file"] = source_file
+
+    #5 if in schema v1:
+    if "cbd_congestion_fee" not in source.columns:
+        source["cbd_congestion_fee"] = 0.0
 
     source = source.rename(columns=RENAME)
     
@@ -172,6 +177,7 @@ def create_quality_summary(
     rejected_df: pd.DataFrame,
     raw_row_count: int,
 ) -> pd.DataFrame:
+    # v5. tu trzeba podbpić minimum count
     """Create quality metrics and enforce row-count reconciliation."""
     output_row_count = len(processed_df) + len(rejected_df)
 

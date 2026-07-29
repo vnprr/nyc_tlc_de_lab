@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import requests
+
 
 def download_month(month: str, dataset: str, base_url: str, raw_dir: Path) -> Path:
     """
@@ -23,17 +26,19 @@ def download_month(month: str, dataset: str, base_url: str, raw_dir: Path) -> Pa
 
     response = requests.get(url=url, timeout=60, stream=True)
 
-    response.raise_for_status()                                         # Raise an error for bad responses
+    response.raise_for_status()  # Raise an error for bad responses
 
-    temp_file = local_path.with_suffix(".tmp")                          # Create a temporary file to avoid partial downloads
+    temp_file = local_path.with_suffix(
+        ".tmp"
+    )  # Create a temporary file to avoid partial downloads
 
     with open(temp_file, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):     # 1 MB chunks
+        for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1 MB chunks
             f.write(chunk)
-    
+
     temp_file.rename(local_path)
 
-    size = local_path.stat().st_size /1024 / 1024  # Size in MB
+    size = local_path.stat().st_size / 1024 / 1024  # Size in MB
     print(f"OK: {local_path} ({size:.2f} MB).")
 
     return local_path
