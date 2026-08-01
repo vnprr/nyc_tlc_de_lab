@@ -1,17 +1,19 @@
 """Build analytics/trips_weather_hourly: hourly trip aggregates joined
 with hourly weather. Reads processed partitions month by month."""
+
 import logging
 from pathlib import Path
 
 import pandas as pd
 
+from src.config import (
+    ANALYTICS_TRIPS_WEATHER_PREFIX,
+    BUCKET,
+    PROCESSED_WEATHER_PREFIX,
+    WORKDIR,
+)
+from src.logging_setup import setup_logging
 from src.s3_io import download_file, list_keys, upload_df_overwrite
-
-BUCKET = "jakub-nyc-taxi-lake-2026"
-TAXI_PREFIX = "processed/yellow_taxi/"
-WEATHER_PREFIX = "processed/weather_hourly/"
-ANALYTICS_PREFIX = "analytics/trips_weather_hourly/"
-WORKDIR = Path("data/workdir")
 
 MONTHS = [(2024, 1), (2024, 2), (2024, 3), (2024, 4), (2025, 1)]
 
@@ -34,7 +36,7 @@ def read_partition(prefix: str, year: int, month: int) -> pd.DataFrame:
 
 
 def build_month(year: int, month: int) -> None:
-    df = read_partition(TAXI_PREFIX, year, month)
+    df = read_partition(PROCESSED_WEATHER_PREFIX, year, month)
     if df.empty:
         logging.warning("No taxi partition for %d-%02d, skipping", year, month)
         return
@@ -55,7 +57,7 @@ def build_month(year: int, month: int) -> None:
                     ).rename("pct_time_flagged")
     hourly = base.join([clean, pct_flagged]).reset_index()
 
-    weather = read_partition(WEATHER_PREFIX, year, month)
+    weather = read_partition(PROCESSED_WEATHER_PREFIX, year, month)
     result = hourly.merge(
         weather, left_on="pickup_hour", right_on="observed_hour", how="left",
     ).drop(columns=["observed_hour"])
@@ -65,13 +67,13 @@ def build_month(year: int, month: int) -> None:
         logging.warning("%d hours without weather match in %d-%02d",
                         unmatched, year, month)
 
-    out_key = (f"{ANALYTICS_PREFIX}year={year}/month={month:02d}/"
+    out_key = (f"{ANALYTICS_TRIPS_WEATHER_PREFIX}year={year}/month={month:02d}/"
                 f"trips_weather_{year}-{month:02d}.parquet")
     upload_df_overwrite(result, BUCKET, out_key, WORKDIR)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO,
+    setup_logging(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(message)s")
     for year, month in MONTHS:
         build_month(year, month)

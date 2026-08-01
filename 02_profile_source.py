@@ -7,6 +7,8 @@ import pandas as pd
 
 from src.validate import validate_source
 
+from src.log_basic_info import setup_logging
+
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_FILE = PROJECT_DIR / "data/raw_download/yellow_tripdata_2024-01.parquet"
 
@@ -23,7 +25,7 @@ def load_source(file_path: Path) -> pd.DataFrame:
     
     file_size_mb = file_size / (1024 * 1024)
 
-    logging.info("Source file found: %s", file_path)
+    setup_logging("Source file found: %s", file_path)
     logging.info("File size: %.2f MB", file_size_mb)
     
     logging.info("Loading source data from: %s", file_path)

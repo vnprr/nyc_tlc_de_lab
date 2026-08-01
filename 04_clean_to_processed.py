@@ -2,26 +2,25 @@
 and quality outputs. Idempotent: deterministic output keys, re-runs overwrite."""
 
 import argparse
-from datetime import datetime, timezone
 import logging
-import pandas as pd
-from pathlib import Path
 import re
+from datetime import UTC, datetime
+from pathlib import Path
 
-from src.manifest import get_raw_etag, load_manifest, needs_processing, save_manifest
-from src.s3_io import download_file, list_keys, upload_df_overwrite, s3
-from src.transform import create_quality_summary, transform_trips
-from src.validate import validate_source
+import pandas as pd
 
 # variables from env file: 
 from src.config import (
-    BUCKET, WORKDIR,
-    RAW_TAXI_PREFIX, PROCESSED_TAXI_PREFIX,
-    REJECTED_TAXI_PREFIX, QUALITY_TAXI_PREFIX,
+    BUCKET,
+    RAW_TAXI_PREFIX,
     TAXI_MANIFEST_KEY,
+    WORKDIR,
 )
-
-
+from src.logging_setup import setup_logging
+from src.manifest import get_raw_etag, load_manifest, needs_processing, save_manifest
+from src.s3_io import download_file, list_keys, s3, upload_df_overwrite
+from src.transform import create_quality_summary, transform_trips
+from src.validate import validate_source
 
 PROCESSED_PREFIX = "processed/yellow_taxi/"
 REJECTED_PREFIX = "rejected/yellow_taxi/"
@@ -98,7 +97,7 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
+    setup_logging(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
     )
     args = parse_args()
@@ -117,7 +116,7 @@ if __name__ == "__main__":
         process_key(raw_key)
         manifest[filename] = {
             "raw_etag": etag,
-            "processed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "processed_at_utc": datetime.now(UTC).isoformat(),
         }
         save_manifest(manifest, BUCKET, TAXI_MANIFEST_KEY)
     logging.info("Pipeline finished: %d file(s).", len(raw_keys))

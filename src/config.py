@@ -15,6 +15,7 @@ load_dotenv()  # reads .env if present; silently does nothing otherwise
 # environment-specific (overridable)
 BUCKET = os.environ.get("NYC_LAKE_BUCKET", "jakub-nyc-taxi-lake-2026")
 WORKDIR = Path(os.environ.get("NYC_LAKE_WORKDIR", "data/workdir"))
+RAW_DIR = Path("data/raw_download")
 
 # ake structure: architecture, deliberately not configurable
 RAW_TAXI_PREFIX = "raw/yellow_taxi/"

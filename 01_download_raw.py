@@ -1,8 +1,7 @@
-from pathlib import Path
+from src.config import RAW_DIR
 from src.download import download_month
 
 # Data catalog
-RAW_DIR = Path("data/raw_download")
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 # Config constants

@@ -13,3 +13,5 @@ wheels/
 data/
 .ipynb_checkpoints/
 .env
+.vscode
+*.code-workspace

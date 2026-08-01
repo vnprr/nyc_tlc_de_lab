@@ -8,7 +8,6 @@ from botocore.exceptions import ClientError
 
 from src import manifest
 
-
 BUCKET = "test-bucket"
 KEY = "state/manifest.json"
 

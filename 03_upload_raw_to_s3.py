@@ -1,17 +1,14 @@
 from pathlib import Path
-import boto3
-from botocore.exceptions import ClientError
 
-BUCKET = "jakub-nyc-taxi-lake-2026"
-RAW_PREFIX = "raw/yellow_taxi/"
-RAW_DIR = Path("data/raw_download")
+import boto3
+
+from src.config import BUCKET, RAW_DIR, RAW_TAXI_PREFIX
 
 s3 = boto3.client("s3")
 
 
-
 def upload_raw_file(local_path: Path) -> None:
-    key = RAW_PREFIX + local_path.name
+    key = RAW_TAXI_PREFIX + local_path.name
     if object_exists(BUCKET, key):
         print(f"SKIP: s3://{BUCKET}/{key} (already in raw!)")
         return

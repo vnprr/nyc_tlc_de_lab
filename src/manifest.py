@@ -1,8 +1,10 @@
-import logging
-from botocore.exceptions import ClientError
 import json
+import logging
+
+from botocore.exceptions import ClientError
 
 from src.s3_io import s3
+
 
 def load_manifest(bucket: str, key: str) -> dict:
     """
