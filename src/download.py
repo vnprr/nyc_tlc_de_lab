@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import requests
@@ -19,10 +20,10 @@ def download_month(month: str, dataset: str, base_url: str, raw_dir: Path) -> Pa
     local_path = raw_dir / filename
 
     if local_path.exists():
-        print(f"SKIP   {filename} (already downloaded)")
+        logging.info("SKIP %s (already downloaded)", filename)
         return local_path
 
-    print(f"GET: {url}")
+    logging.info("GET %s", url)
 
     response = requests.get(url=url, timeout=60, stream=True)
 
@@ -39,6 +40,6 @@ def download_month(month: str, dataset: str, base_url: str, raw_dir: Path) -> Pa
     temp_file.rename(local_path)
 
     size = local_path.stat().st_size / 1024 / 1024  # Size in MB
-    print(f"OK: {local_path} ({size:.2f} MB).")
+    logging.info("OK %s (%.2f MB)", local_path, size)
 
     return local_path

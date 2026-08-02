@@ -17,7 +17,7 @@ BUCKET = os.environ.get("NYC_LAKE_BUCKET", "jakub-nyc-taxi-lake-2026")
 WORKDIR = Path(os.environ.get("NYC_LAKE_WORKDIR", "data/workdir"))
 RAW_DIR = Path("data/raw_download")
 
-# ake structure: architecture, deliberately not configurable
+# lake structure: architecture, deliberately not configurable
 RAW_TAXI_PREFIX = "raw/yellow_taxi/"
 PROCESSED_TAXI_PREFIX = "processed/yellow_taxi/"
 REJECTED_TAXI_PREFIX = "rejected/yellow_taxi/"
@@ -29,3 +29,6 @@ PROCESSED_WEATHER_PREFIX = "processed/weather_hourly/"
 WEATHER_MANIFEST_KEY = "_meta/weather_manifest.json"
 
 ANALYTICS_TRIPS_WEATHER_PREFIX = "analytics/trips_weather_hourly/"
+
+# Data to load
+MONTHS = ["2024-01", "2024-02", "2024-03"]

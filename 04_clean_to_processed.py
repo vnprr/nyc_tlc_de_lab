@@ -97,9 +97,7 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    setup_logging(
-        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
-    )
+    setup_logging("clean_taxi")
     args = parse_args()
     raw_keys = list_keys(BUCKET, RAW_TAXI_PREFIX, suffix=".parquet")
     if args.only:

@@ -5,14 +5,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.logging_setup import setup_logging
 from src.validate import validate_source
-
-from src.log_basic_info import setup_logging
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_FILE = PROJECT_DIR / "data/raw_download/yellow_tripdata_2024-01.parquet"
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def load_source(file_path: Path) -> pd.DataFrame:
     if not file_path.exists() or not file_path.is_file():
@@ -25,7 +22,7 @@ def load_source(file_path: Path) -> pd.DataFrame:
     
     file_size_mb = file_size / (1024 * 1024)
 
-    setup_logging("Source file found: %s", file_path)
+    logging.info("Source file found: %s", file_path)
     logging.info("File size: %.2f MB", file_size_mb)
     
     logging.info("Loading source data from: %s", file_path)
@@ -48,6 +45,7 @@ def log_basic_info(df: pd.DataFrame) -> None:
 
 
 if __name__ == "__main__":
+    setup_logging("profile_source")
     df = load_source(DATA_FILE)
     log_basic_info(df)
     validate_source(df)

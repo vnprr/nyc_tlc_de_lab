@@ -9,18 +9,20 @@ import pandas as pd
 from src.config import (
     ANALYTICS_TRIPS_WEATHER_PREFIX,
     BUCKET,
-    PROCESSED_WEATHER_PREFIX,
+    PROCESSED_WEATHER_PREFIX, PROCESSED_TAXI_PREFIX,
     WORKDIR,
 )
+
 from src.logging_setup import setup_logging
 from src.s3_io import download_file, list_keys, upload_df_overwrite
+from src.config import MONTHS
 
-MONTHS = [(2024, 1), (2024, 2), (2024, 3), (2024, 4), (2025, 1)]
+PERIODS = [(int(m[:4]), int(m[5:7])) for m in MONTHS]
+# MONTHS = [(2024, 1), (2024, 2), (2024, 3), (2024, 4), (2025, 1)]
 
 EXCLUDE_FROM_TIME_METRICS = [
     "is_nonpositive_duration", "is_over_24h_duration", "is_implausible_speed",
 ]
-
 
 def read_partition(prefix: str, year: int, month: int) -> pd.DataFrame:
     part_prefix = f"{prefix}year={year}/month={month:02d}/"
@@ -36,7 +38,7 @@ def read_partition(prefix: str, year: int, month: int) -> pd.DataFrame:
 
 
 def build_month(year: int, month: int) -> None:
-    df = read_partition(PROCESSED_WEATHER_PREFIX, year, month)
+    df = read_partition(PROCESSED_TAXI_PREFIX, year, month)
     if df.empty:
         logging.warning("No taxi partition for %d-%02d, skipping", year, month)
         return
@@ -73,8 +75,7 @@ def build_month(year: int, month: int) -> None:
 
 
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
-    for year, month in MONTHS:
+    setup_logging("build_analytics")
+    for year, month in PERIODS:
         build_month(year, month)
     logging.info("Analytics build finished.")

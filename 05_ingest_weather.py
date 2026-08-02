@@ -20,8 +20,7 @@ from src.logging_setup import setup_logging
 from src.manifest import load_manifest, save_manifest
 from src.s3_io import s3
 from src.weather import fetch_weather_month
-
-MONTHS = ["2024-01", "2024-02", "2024-03", "2024-04", "2025-01"]
+from src.config import MONTHS
 
 
 def parse_args():
@@ -31,8 +30,7 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
+    setup_logging("ingest_weather")
     args = parse_args()
     manifest = load_manifest(BUCKET, WEATHER_MANIFEST_KEY)
 

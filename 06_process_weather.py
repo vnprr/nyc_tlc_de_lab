@@ -23,8 +23,7 @@ from src.weather import process_weather_payload
 FILE_PATTERN = re.compile(r"weather_(?P<year>\d{4})-(?P<month>\d{2})\.json")
 
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
+    setup_logging("process_weather")
     for key in list_keys(BUCKET, RAW_WEATHER_PREFIX, suffix=".json"):
         match = FILE_PATTERN.fullmatch(Path(key).name)
         if match is None:

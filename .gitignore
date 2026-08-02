@@ -11,6 +11,7 @@ wheels/
 
 # Local data and notebook state
 data/
+logs/
 .ipynb_checkpoints/
 .env
 .vscode
