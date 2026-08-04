@@ -1,25 +1,36 @@
 [project]
 name = "nyc-tlc-trip-data"
 version = "0.1.0"
-description = "Add your description here"
+description = "Incremental, quality-aware NYC TLC and hourly weather data pipeline"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.43.46",
-    "jupyter>=1.1.1",
-    "matplotlib>=3.11.1",
     "numpy>=2.5.1",
     "pandas>=3.0.3",
+    "parquet>=1.3.1",
     "pyarrow>=25.0.0",
-    "pytest>=9.1.1",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
 ]
 
 [dependency-groups]
 dev = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.1",
     "pytest>=9.1.1",
+    "ruff>=0.12.0",
 ]
 
 [tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
 pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = [".jupyter", "_trash", "main.py", "notebooks"]
+
+[tool.ruff.lint]
+select = ["B", "DTZ", "E4", "E7", "E9", "F", "I", "RUF", "UP"]

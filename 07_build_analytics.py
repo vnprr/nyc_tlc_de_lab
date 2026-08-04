@@ -1,81 +1,168 @@
-"""Build analytics/trips_weather_hourly: hourly trip aggregates joined
-with hourly weather. Reads processed partitions month by month."""
+"""Build hourly taxi aggregates joined with weather.
+
+Because taxi files retain a seven-day boundary margin, a complete event month
+``M`` requires source files ``M-1``, ``M`` and ``M+1``.  With the default
+January to March source scope, only February is publishable.
+"""
 
 import logging
+import tempfile
 from pathlib import Path
 
 import pandas as pd
 
+from src.analytics import build_trips_weather_hourly
 from src.config import (
     ANALYTICS_TRIPS_WEATHER_PREFIX,
-    BUCKET,
-    PROCESSED_WEATHER_PREFIX, PROCESSED_TAXI_PREFIX,
+    MONTHS,
+    PROCESSED_TAXI_PREFIX,
+    PROCESSED_WEATHER_PREFIX,
+    RAW_TAXI_PREFIX,
+    RAW_WEATHER_PREFIX,
+    TAXI_MANIFEST_KEY,
+    WEATHER_MANIFEST_KEY,
     WORKDIR,
+    parse_period,
+    require_bucket,
+)
+from src.coverage import publishable_periods, required_source_periods
+from src.logging_setup import setup_logging
+from src.manifest import get_raw_etag, load_manifest, manifest_output_keys, processing_reason
+from src.s3_io import delete_keys, download_file, s3, upload_df_overwrite
+from src.transform import TRANSFORM_VERSION
+from src.weather import (
+    manifest_weather_digest,
+    validate_processed_weather_metadata,
+    validate_raw_weather_metadata,
 )
 
-from src.logging_setup import setup_logging
-from src.s3_io import download_file, list_keys, upload_df_overwrite
-from src.config import MONTHS
+LOGGER = logging.getLogger(__name__)
 
-PERIODS = [(int(m[:4]), int(m[5:7])) for m in MONTHS]
-# MONTHS = [(2024, 1), (2024, 2), (2024, 3), (2024, 4), (2025, 1)]
 
-EXCLUDE_FROM_TIME_METRICS = [
-    "is_nonpositive_duration", "is_over_24h_duration", "is_implausible_speed",
-]
+def analytics_output_key(period: str) -> str:
+    year, month = parse_period(period)
+    return (
+        f"{ANALYTICS_TRIPS_WEATHER_PREFIX}year={year}/month={month:02d}/"
+        f"trips_weather_{period}.parquet"
+    )
 
-def read_partition(prefix: str, year: int, month: int) -> pd.DataFrame:
-    part_prefix = f"{prefix}year={year}/month={month:02d}/"
-    keys = list_keys(BUCKET, part_prefix, suffix=".parquet")
+
+def current_taxi_partition_keys(
+    event_period: str,
+    *,
+    bucket: str,
+    manifest: dict,
+) -> list[str]:
+    """Select current processed files for one complete event-time partition."""
+    year, month = parse_period(event_period)
+    partition_prefix = f"{PROCESSED_TAXI_PREFIX}year={year}/month={month:02d}/"
+    keys = []
+
+    for source_period in required_source_periods(event_period):
+        filename = f"yellow_tripdata_{source_period}.parquet"
+        raw_key = f"{RAW_TAXI_PREFIX}{filename}"
+        raw_etag = get_raw_etag(bucket, raw_key)
+        reason = processing_reason(
+            filename,
+            raw_etag,
+            manifest,
+            transform_version=TRANSFORM_VERSION,
+            source_key=raw_key,
+            bucket=bucket,
+        )
+        if reason is not None:
+            raise RuntimeError(f"Taxi source {source_period} is not current: {reason}")
+
+        keys.extend(
+            key
+            for key in manifest_output_keys(filename, manifest[filename])
+            if key.startswith(partition_prefix) and key.endswith(f"/{filename}")
+        )
+
+    keys = sorted(set(keys))
+    if not keys:
+        raise FileNotFoundError(f"No taxi data found for event month {event_period}")
+    return keys
+
+
+def read_parquet_keys(
+    keys: list[str],
+    *,
+    bucket: str,
+    scratch: Path,
+) -> pd.DataFrame:
     frames = []
-    for key in keys:
-        local = WORKDIR / Path(key).name
-        download_file(BUCKET, key, local)
-        frames.append(pd.read_parquet(local))
+    for index, key in enumerate(keys):
+        local_path = scratch / f"input-{index:03d}.parquet"
+        download_file(bucket, key, local_path)
+        frames.append(pd.read_parquet(local_path))
     if not frames:
-        return pd.DataFrame()
+        raise FileNotFoundError("No Parquet inputs selected")
     return pd.concat(frames, ignore_index=True)
 
 
-def build_month(year: int, month: int) -> None:
-    df = read_partition(PROCESSED_TAXI_PREFIX, year, month)
-    if df.empty:
-        logging.warning("No taxi partition for %d-%02d, skipping", year, month)
-        return
-
-    df["pickup_hour"] = df["pickup_datetime"].dt.floor("h")
-    bad_time = df[EXCLUDE_FROM_TIME_METRICS].any(axis=1)
-
-    base = df.groupby("pickup_hour").agg(
-        trips_count=("pickup_datetime", "size"),
-        avg_total_amount=("total_amount", "mean"),
+def build_month(
+    period: str,
+    *,
+    bucket: str,
+    taxi_manifest: dict,
+    weather_manifest: dict,
+) -> None:
+    year, month = parse_period(period)
+    taxi_keys = current_taxi_partition_keys(period, bucket=bucket, manifest=taxi_manifest)
+    raw_weather_key = f"{RAW_WEATHER_PREFIX}weather_{period}.json"
+    weather_digest = manifest_weather_digest(weather_manifest.get(period), raw_weather_key)
+    weather_key = (
+        f"{PROCESSED_WEATHER_PREFIX}year={year}/month={month:02d}/weather_{period}.parquet"
     )
-    clean = df.loc[~bad_time].groupby("pickup_hour").agg(
-        avg_duration_min=("trip_duration_minutes", "mean"),
-        avg_distance_mi=("trip_distance", "mean"),
-        avg_speed_mph=("average_speed_mph", "mean"),
-    )
-    pct_flagged = (bad_time.groupby(df["pickup_hour"]).mean() * 100
-                    ).rename("pct_time_flagged")
-    hourly = base.join([clean, pct_flagged]).reset_index()
+    raw_metadata = s3.head_object(Bucket=bucket, Key=raw_weather_key).get("Metadata")
+    validate_raw_weather_metadata(raw_metadata, weather_digest)
+    processed_metadata = s3.head_object(Bucket=bucket, Key=weather_key).get("Metadata")
+    validate_processed_weather_metadata(processed_metadata, weather_digest)
 
-    weather = read_partition(PROCESSED_WEATHER_PREFIX, year, month)
-    result = hourly.merge(
-        weather, left_on="pickup_hour", right_on="observed_hour", how="left",
-    ).drop(columns=["observed_hour"])
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=WORKDIR, prefix=f"analytics-{period}-") as directory:
+        scratch = Path(directory)
+        trips = read_parquet_keys(taxi_keys, bucket=bucket, scratch=scratch)
+        weather_local = scratch / f"weather_{period}.parquet"
+        download_file(bucket, weather_key, weather_local)
+        weather = pd.read_parquet(weather_local)
+        result = build_trips_weather_hourly(trips, weather, year, month)
 
-    unmatched = int(result["temperature_c"].isna().sum())
-    if unmatched:
-        logging.warning("%d hours without weather match in %d-%02d",
-                        unmatched, year, month)
+    upload_df_overwrite(result, bucket, analytics_output_key(period), WORKDIR)
+    LOGGER.info("BUILT analytics %s", period)
 
-    out_key = (f"{ANALYTICS_TRIPS_WEATHER_PREFIX}year={year}/month={month:02d}/"
-                f"trips_weather_{year}-{month:02d}.parquet")
-    upload_df_overwrite(result, BUCKET, out_key, WORKDIR)
+
+def run(*, source_periods: tuple[str, ...] = MONTHS) -> None:
+    bucket = require_bucket()
+    publish_periods = publishable_periods(source_periods)
+    if not publish_periods:
+        raise ValueError("At least three consecutive source months are required for analytics")
+
+    excluded = [period for period in source_periods if period not in publish_periods]
+    if excluded:
+        LOGGER.warning("Coverage-only source months will not be published: %s", excluded)
+
+    taxi_manifest = load_manifest(bucket, TAXI_MANIFEST_KEY)
+    weather_manifest = load_manifest(bucket, WEATHER_MANIFEST_KEY)
+    for period in publish_periods:
+        build_month(
+            period,
+            bucket=bucket,
+            taxi_manifest=taxi_manifest,
+            weather_manifest=weather_manifest,
+        )
+
+    # A previous run may have published a boundary month under a looser
+    # coverage rule. Remove only deterministic outputs from the current scope.
+    delete_keys(bucket, (analytics_output_key(period) for period in excluded))
+    LOGGER.info("Analytics build finished for %s", list(publish_periods))
+
+
+def main() -> None:
+    setup_logging("build_analytics")
+    run()
 
 
 if __name__ == "__main__":
-    setup_logging("build_analytics")
-    for year, month in PERIODS:
-        build_month(year, month)
-    logging.info("Analytics build finished.")
+    main()
